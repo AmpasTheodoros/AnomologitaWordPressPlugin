@@ -6,64 +6,84 @@ Version: 1.0
 Author: Your Name
 */
 
-function ai_plugin_shortcode() {
-  return "Welcome to AI-powered WordPress!";
-}
-add_shortcode('ai_plugin', 'ai_plugin_shortcode');
+function custom_message_form() {
+  // // Check if user is logged in
+  // if (!is_user_logged_in()) {
+  //     return "You must be logged in to submit a message.";
+  // }
 
-function get_ai_response($prompt) {
-  $api_key = 'your-api-key-here';
-  $response = wp_remote_post('https://api.openai.com/v1/engines/davinci/completions', array(
-      'headers' => array(
-          'Authorization' => 'Bearer ' . $api_key,
-          'Content-Type' => 'application/json',
-      ),
-      'body' => json_encode(array(
-          'prompt' => $prompt,
-          'max_tokens' => 150,
-      )),
-  ));
-
-  if (is_wp_error($response)) {
-      error_log('Error in API request: ' . $response->get_error_message());
-      return 'Error in API request: ' . $response->get_error_message();
-  }
-
-  $body = wp_remote_retrieve_body($response);
-  $data = json_decode($body, true);
-
-  if (!isset($data['choices'])) {
-      error_log('Unexpected API response: ' . $body);
-      return 'Error: Unexpected API response.';
-  }
-
-  return $data['choices'][0]['text'];
-}
-
-function ai_form_shortcode() {
-  $form_html = '
+  // Form HTML
+  $form = '
   <form action="' . esc_url($_SERVER['REQUEST_URI']) . '" method="post">
-      <label for="ai_query">Ask me anything:</label>
-      <input type="text" id="ai_query" name="ai_query" value="' . (isset($_POST['ai_query']) ? esc_attr($_POST['ai_query']) : '') . '" />
-      <input type="submit" name="ai_submit" value="Ask AI" />
+      <textarea name="custom_message_text" required></textarea>
+      <input type="submit" name="custom_message_submit" value="Submit Message">
   </form>';
 
-  if (isset($_POST['ai_submit'])) {
-      $query = sanitize_text_field($_POST['ai_query']);
-      $response = get_ai_response($query);
-      $form_html .= '<p>AI Response: ' . esc_html($response) . '</p>';
+  return $form;
+}
+add_shortcode('submit_message', 'custom_message_form');
+
+function handle_message_submission() {
+  global $wpdb; // Global WordPress database access
+
+  if (isset($_POST['custom_message_submit']) && !empty($_POST['custom_message_text'])) {
+      $text = sanitize_textarea_field($_POST['custom_message_text']);
+      $table_name = $wpdb->prefix . 'messages';
+
+      // Insert data into the database
+      $wpdb->insert(
+          $table_name,
+          array(
+              'text' => $text,
+              'authorized' => false,  // Default to false, change based on your authorization logic
+              'likes' => 0,           // Default to 0
+              'ticketNumber' => null, // Assuming no ticket number at submission
+          ),
+          array(
+              '%s',    // placeholder for 'text' (string)
+              '%d',    // placeholder for 'authorized' (boolean/int)
+              '%d',    // placeholder for 'likes' (int)
+              '%d'     // placeholder for 'ticketNumber' (int)
+          )
+      );
+
+      if ($wpdb->insert_id > 0) {
+          echo '<div>Message submitted successfully!</div>';
+      } else {
+          echo '<div>Error in message submission.</div>';
+      }
   }
-
-  return $form_html;
 }
-add_shortcode('ai_form', 'ai_form_shortcode');
+add_action('init', 'handle_message_submission');
 
-
-function ai_shortcode($atts) {
-  $atts = shortcode_atts(array(
-      'prompt' => 'Hello world',
-  ), $atts);
-
-  return get_ai_response($atts['prompt']);
+function display_authorized_messages() {
+  global $wpdb; // Access to the WordPress database class
+  $table_name = $wpdb->prefix . 'messages';
+  
+  // Query to retrieve messages where 'authorized' is true, sorted by 'time' descending
+  $query = "SELECT * FROM $table_name WHERE authorized = 0 ORDER BY time DESC";
+  $messages = $wpdb->get_results($query);
+  
+  // Initialize an output variable
+  $output = '<div class="custom-messages-list">';
+  
+  if ($messages) {
+      foreach ($messages as $message) {
+          $output .= '<div class="message">';
+          $output .= '<p>' . esc_textarea($message->text) . '</p>';
+          $output .= '<p>Likes: ' . intval($message->likes) . '</p>';
+          $output .= '<p>Submitted on: ' . date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($message->time)) . '</p>';
+          $output .= '</div>';
+      }
+  } else {
+      $output .= '<p>No messages found.</p>';
+  }
+  
+  $output .= '</div>';
+  
+  return $output;
 }
-add_shortcode('ai_response', 'ai_shortcode');
+add_shortcode('display_messages', 'display_authorized_messages');
+
+
+
